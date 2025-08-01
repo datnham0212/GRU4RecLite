@@ -1,0 +1,26 @@
+graph TD
+    subgraph Input_Layer
+        X[Item Input IDs] --> Embedding
+    end
+
+    subgraph Embedding_Layer
+        Embedding -->|constrained_embedding=True| Wy_E[Output Embedding Weights]
+        Embedding -->|embedding > 0| EmbeddingLayer[nn.Embedding]
+        Embedding -->|embedding == 0| GRUEmbedding
+    end
+
+    subgraph GRU_Layers
+        GRUEmbedding --> H0_HiddenState[Hidden State H0]
+        H0_HiddenState --> GRU0[GRUCell Layer 0]
+        GRU0 -->|Dropout| D0[Dropout Layer 0]
+        D0 --> H1_HiddenState[Hidden State H1]
+        H1_HiddenState --> GRU1[GRUCell Layer 1]
+        GRU1 -->|...| GRUN[Final GRU Layer]
+    end
+
+    subgraph Output_Layer
+        GRUN --> ScoreItems[Score Items]
+        Wy_E --> ScoreItems
+        By[Output Bias] --> ScoreItems
+        ScoreItems --> R[Final Recommendation Scores]
+    end

@@ -1,0 +1,23 @@
+graph TD
+    subgraph Preprocessing
+        RawData_SessionItemTime[Session-Item-Time DataFrame] --> Sorter[Sort by SessionId, Time]
+        Sorter --> OffsetComputer[Compute Session Offsets]
+        OffsetComputer --> ItemMap[Create ItemID Map]
+    end
+
+    subgraph DataIterator
+        ItemMap --> DataItems[Mapped Item IDs]
+        OffsetComputer --> SessionIndexer[Session Index Iterator]
+        SessionIndexer --> BatchSampler[Mini-batch Sampler]
+        SampleCache[Negative Sampler] -->|if enabled| BatchSampler
+    end
+
+    subgraph TrainingLoop
+        BatchSampler --> InX[Input IDs X]
+        BatchSampler --> OutY[Target IDs Y]
+        InX --> Model[GRU4RecModel.forward]
+        OutY --> Model
+        Model --> R[Scores]
+        R --> LossFunction[Loss Computation]
+        LossFunction --> Backprop[Backward + Optimizer Step]
+    end
