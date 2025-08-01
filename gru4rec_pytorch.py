@@ -6,6 +6,7 @@ from torch import autograd, nn
 from torch.autograd import Variable
 from collections import OrderedDict
 import time
+from torch.optim import Optimizer
 
 # Bộ tối ưu hóa tùy chỉnh: IndexedAdagradM
 class IndexedAdagradM(Optimizer):
