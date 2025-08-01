@@ -7,35 +7,41 @@ from torch.autograd import Variable
 from collections import OrderedDict
 import time
 
-from torch.optim import Optimizer
+# Bộ tối ưu hóa tùy chỉnh: IndexedAdagradM
 class IndexedAdagradM(Optimizer):
-
     def __init__(self, params, lr=0.05, momentum=0.0, eps=1e-6):
+        # Xác thực các tham số đầu vào
         if lr <= 0.0:
-            raise ValueError("Invalid learning rate: {}".format(lr))
+            raise ValueError("Tốc độ học không hợp lệ: {}".format(lr))
         if momentum < 0.0:
-            raise ValueError("Invalid momentum value: {}".format(momentum))
+            raise ValueError("Giá trị động lượng không hợp lệ: {}".format(momentum))
         if eps <= 0.0:
-            raise ValueError("Invalid epsilon value: {}".format(eps))
+            raise ValueError("Giá trị epsilon không hợp lệ: {}".format(eps))
 
+        # Khởi tạo các giá trị mặc định cho bộ tối ưu hóa
         defaults = dict(lr=lr, momentum=momentum, eps=eps)
         super(IndexedAdagradM, self).__init__(params, defaults)
 
+        # Khởi tạo trạng thái cho từng tham số
         for group in self.param_groups:
             for p in group['params']:
                 state = self.state[p]
                 state['acc'] = torch.full_like(p, 0, memory_format=torch.preserve_format)
-                if momentum > 0: state['mom'] = torch.full_like(p, 0, memory_format=torch.preserve_format)
+                if momentum > 0:
+                    state['mom'] = torch.full_like(p, 0, memory_format=torch.preserve_format)
 
     def share_memory(self):
+        # Chia sẻ bộ nhớ cho trạng thái của bộ tối ưu hóa giữa các tiến trình
         for group in self.param_groups:
             for p in group['params']:
                 state = self.state[p]
                 state['acc'].share_memory_()
-                if group['momentum'] > 0: state['mom'].share_memory_()
+                if group['momentum'] > 0:
+                    state['mom'].share_memory_()
 
     @torch.no_grad()
     def step(self, closure=None):
+        # Thực hiện một bước tối ưu hóa
         loss = None
         if closure is not None:
             with torch.enable_grad():
@@ -49,12 +55,13 @@ class IndexedAdagradM(Optimizer):
                 clr = group['lr']
                 momentum = group['momentum']
                 if grad.is_sparse:
+                    # Xử lý gradient thưa
                     grad = grad.coalesce()
                     grad_indices = grad._indices()[0]
                     grad_values = grad._values()
                     accs = state['acc'][grad_indices] + grad_values.pow(2)
                     state['acc'].index_copy_(0, grad_indices, accs)
-                    accs.add_(group['eps']).sqrt_().mul_(-1/clr)
+                    accs.add_(group['eps']).sqrt_().mul_(-1 / clr)
                     if momentum > 0:
                         moma = state['mom'][grad_indices]
                         moma.mul_(momentum).add_(grad_values / accs)
@@ -63,6 +70,7 @@ class IndexedAdagradM(Optimizer):
                     else:
                         p.index_add_(0, grad_indices, grad_values / accs)
                 else:
+                    # Xử lý gradient dày đặc
                     state['acc'].add_(grad.pow(2))
                     accs = state['acc'].add(group['eps'])
                     accs.sqrt_()
@@ -74,10 +82,12 @@ class IndexedAdagradM(Optimizer):
                         p.addcdiv_(grad, accs, value=-clr)
         return loss
 
+# Khởi tạo ma trận tham số với phân phối đồng nhất
 def init_parameter_matrix(tensor: torch.Tensor, dim0_scale: int = 1, dim1_scale: int = 1):
     sigma = math.sqrt(6.0 / float(tensor.size(0) / dim0_scale + tensor.size(1) / dim1_scale))
     return nn.init._no_grad_uniform_(tensor, -sigma, sigma)
 
+# Lớp nhúng dựa trên GRU
 class GRUEmbedding(nn.Module):
     def __init__(self, dim_in, dim_out):
         super(GRUEmbedding, self).__init__()
@@ -86,12 +96,16 @@ class GRUEmbedding(nn.Module):
         self.Wh0 = nn.Parameter(torch.empty((dim_out, dim_out * 1), dtype=torch.float))
         self.Bh0 = nn.Parameter(torch.zeros(dim_out * 3, dtype=torch.float))
         self.reset_parameters()
+
     def reset_parameters(self):
-        init_parameter_matrix(self.Wx0.weight, dim1_scale = 3)
-        init_parameter_matrix(self.Wrz0, dim1_scale = 2)
-        init_parameter_matrix(self.Wh0, dim1_scale = 1)
+        # Khởi tạo trọng số và độ chệch
+        init_parameter_matrix(self.Wx0.weight, dim1_scale=3)
+        init_parameter_matrix(self.Wrz0, dim1_scale=2)
+        init_parameter_matrix(self.Wh0, dim1_scale=1)
         nn.init.zeros_(self.Bh0)
+
     def forward(self, X, H):
+        # Truyền tiến cho lớp nhúng GRU
         Vx = self.Wx0(X) + self.Bh0
         Vrz = torch.mm(H, self.Wrz0)
         vx_x, vx_r, vx_z = Vx.chunk(3, 1)
@@ -102,6 +116,7 @@ class GRUEmbedding(nn.Module):
         h = (1.0 - z) * H + z * h
         return h
 
+# Định nghĩa mô hình GRU4Rec
 class GRU4RecModel(nn.Module):
     def __init__(self, n_items, layers=[100], dropout_p_embed=0.0, dropout_p_hidden=0.0, embedding=0, constrained_embedding=True):
         super(GRU4RecModel, self).__init__()
@@ -112,6 +127,8 @@ class GRU4RecModel(nn.Module):
         self.embedding = embedding
         self.constrained_embedding = constrained_embedding
         self.start = 0
+
+        # Khởi tạo các lớp nhúng
         if constrained_embedding:
             n_input = layers[-1]
         elif embedding:
@@ -121,34 +138,42 @@ class GRU4RecModel(nn.Module):
             self.GE = GRUEmbedding(n_items, layers[0])
             n_input = n_items
             self.start = 1
+
+        # Khởi tạo các lớp GRU và dropout
         self.DE = nn.Dropout(dropout_p_embed)
         self.G = []
         self.D = []
         for i in range(self.start, len(layers)):
-            self.G.append(nn.GRUCell(layers[i-1] if i > 0 else n_input, layers[i]))
+            self.G.append(nn.GRUCell(layers[i - 1] if i > 0 else n_input, layers[i]))
             self.D.append(nn.Dropout(dropout_p_hidden))
         self.G = nn.ModuleList(self.G)
         self.D = nn.ModuleList(self.D)
+
+        # Khởi tạo các lớp đầu ra
         self.Wy = nn.Embedding(n_items, layers[-1], sparse=True)
         self.By = nn.Embedding(n_items, 1, sparse=True)
         self.reset_parameters()
+
     @torch.no_grad()
     def reset_parameters(self):
+        # Đặt lại các tham số cho tất cả các lớp
         if self.embedding:
             init_parameter_matrix(self.E.weight)
         elif not self.constrained_embedding:
             self.GE.reset_parameters()
         for i in range(len(self.G)):
-            init_parameter_matrix(self.G[i].weight_ih, dim1_scale = 3)
-            init_parameter_matrix(self.G[i].weight_hh, dim1_scale = 3)
+            init_parameter_matrix(self.G[i].weight_ih, dim1_scale=3)
+            init_parameter_matrix(self.G[i].weight_hh, dim1_scale=3)
             nn.init.zeros_(self.G[i].bias_ih)
             nn.init.zeros_(self.G[i].bias_hh)
         init_parameter_matrix(self.Wy.weight)
         nn.init.zeros_(self.By.weight)
+
     def _init_numpy_weights(self, shape):
         sigma = np.sqrt(6.0 / (shape[0] + shape[1]))
         m = np.random.rand(*shape).astype('float32') * 2 * sigma - sigma
         return m
+
     @torch.no_grad()
     def _reset_weights_to_compatibility_mode(self):
         np.random.seed(42)
@@ -191,6 +216,7 @@ class GRU4RecModel(nn.Module):
 
         self.Wy.weight.set_(torch.tensor(self._init_numpy_weights((self.n_items, self.layers[-1])), dtype=torch.float32, device=self.Wy.weight.device))
         self.By.weight.set_(torch.zeros((self.n_items, 1), dtype=torch.float32, device=self.By.weight.device))
+
     def embed_constrained(self, X, Y=None):
         if Y is not None:
             XY = torch.cat([X, Y])
@@ -204,6 +230,7 @@ class GRU4RecModel(nn.Module):
             O = self.Wy.weight
             B = self.By.weight
         return E, O, B
+
     def embed_separate(self, X, Y=None):
         E = self.E(X)
         if Y is not None:
@@ -213,6 +240,7 @@ class GRU4RecModel(nn.Module):
             O = self.Wy.weight
             B = self.By.weight
         return E, O, B
+
     def embed_gru(self, X, H, Y=None):
         E = self.GE(X, H)
         if Y is not None:
@@ -222,6 +250,7 @@ class GRU4RecModel(nn.Module):
             O = self.Wy.weight
             B = self.By.weight
         return E, O, B
+
     def embed(self, X, H, Y=None):
         if self.constrained_embedding:
             E, O, B = self.embed_constrained(X, Y)
@@ -230,6 +259,7 @@ class GRU4RecModel(nn.Module):
         else:
             E, O, B = self.embed_gru(X, H[0], Y)
         return E, O, B
+
     def hidden_step(self, X, H, training=False):
         for i in range(self.start, len(self.layers)):
             X = self.G[i](X, Variable(H[i]))
@@ -237,12 +267,15 @@ class GRU4RecModel(nn.Module):
                 X = self.D[i](X)
             H[i] = X
         return X
+
     def score_items(self, X, O, B):
         O = torch.mm(X, O.T) + B.T
         return O
+
     def forward(self, X, H, Y, training=False):
+        # Forward pass for the GRU4Rec model
         E, O, B = self.embed(X, H, Y)
-        if training: 
+        if training:
             E = self.DE(E)
         if not (self.constrained_embedding or self.embedding):
             H[0] = E
@@ -257,7 +290,8 @@ class SampleCache:
         self.generate_length = sample_cache_max_size // n_sample if n_sample > 0 else 0
         self.distr = distr
         self._refresh()
-        print('Created sample store with {} batches of samples (type=GPU)'.format(self.generate_length))
+        print('Đã tạo bộ lưu trữ mẫu với {} lô mẫu (loại=GPU)'.format(self.generate_length))
+
     def _bin_search(self, arr, x):
         l = x.shape[0]
         a = torch.zeros(l, dtype=torch.int64, device=self.device)
@@ -269,11 +303,13 @@ class SampleCache:
             a[amask] = ab[amask] + 1
             b[~amask] = ab[~amask]
         return a
+
     def _refresh(self):
         if self.n_sample <= 0: return
         x = torch.rand(self.generate_length * self.n_sample, dtype=torch.float32, device=self.device)
         self.neg_samples = self._bin_search(self.distr, x).reshape((self.generate_length, self.n_sample))
         self.sample_pointer = 0
+
     def get_sample(self):
         if self.sample_pointer >= self.generate_length:
             self._refresh()
@@ -318,7 +354,7 @@ class SessionDataIterator:
         neq_masks = []
         for i, col in enumerate(columns):
             dcol = data[col]
-            neq_masks.append(dcol.values[1:]!=dcol.values[:-1])
+            neq_masks.append(dcol.values[1:] != dcol.values[:-1])
             if i == 0:
                 if any_order_first_dim:
                     is_sorted = is_sorted and (dcol.nunique() == neq_masks[0].sum() + 1)
@@ -329,13 +365,13 @@ class SessionDataIterator:
             if not is_sorted:
                 break
         if is_sorted:
-            print('The dataframe is already sorted by {}'.format(', '.join(columns)))
+            print('Dữ liệu đã được sắp xếp theo {}'.format(', '.join(columns)))
         else:
-            print('The dataframe is not sorted by {}, sorting now'.format(col))
+            print('Dữ liệu chưa được sắp xếp theo {}, đang sắp xếp...'.format(col))
             t0 = time.time()
             data.sort_values(columns, inplace=True)
             t1 = time.time()
-            print('Data is sorted in {:.2f}'.format(t1 - t0))
+            print('Dữ liệu đã được sắp xếp trong {:.2f} giây'.format(t1 - t0))
 
     def compute_offset(self, data, column):
         offset = np.zeros(data[column].nunique() + 1, dtype=np.int32)
@@ -407,16 +443,18 @@ class GRU4Rec:
             self.embedding = embedding
         self.constrained_embedding = constrained_embedding
         self.n_epochs = n_epochs
+
     def set_loss_function(self, loss):
         if loss == 'cross-entropy': self.loss_function = self.xe_loss_with_softmax
         elif loss == 'bpr-max': self.loss_function = self.bpr_max_loss_with_elu
         else: raise NotImplementedError
+
     def set_params(self, **kvargs):
         maxk_len = np.max([len(str(x)) for x in kvargs.keys()])
         maxv_len = np.max([len(str(x)) for x in kvargs.values()])
-        for k,v in kvargs.items():
+        for k, v in kvargs.items():
             if not hasattr(self, k):
-                print('Unkown attribute: {}'.format(k))
+                print('Thuộc tính không xác định: {}'.format(k))
                 raise NotImplementedError
             else:
                 if type(v) == str and type(getattr(self, k)) == list: v = [int(l) for l in v.split('/')]
@@ -424,27 +462,30 @@ class GRU4Rec:
                     if v == 'True' or v == '1': v = True
                     elif v == 'False' or v == '0': v = False
                     else:
-                        print('Invalid value for boolean parameter: {}'.format(v))
+                        print('Giá trị không hợp lệ cho tham số boolean: {}'.format(v))
                         raise NotImplementedError
                 if k == 'embedding' and v == 'layersize':
                     self.embedding = 'layersize'
                 setattr(self, k, type(getattr(self, k))(v))
                 if k == 'loss': self.set_loss_function(self.loss)
-                print('SET   {}{}TO   {}{}(type: {})'.format(k, ' '*(maxk_len-len(k)+3), getattr(self, k), ' '*(maxv_len-len(str(getattr(self, k)))+3), type(getattr(self, k))))
+                print('ĐẶT   {}{}THÀNH   {}{}(kiểu: {})'.format(k, ' ' * (maxk_len - len(k) + 3), getattr(self, k), ' ' * (maxv_len - len(str(getattr(self, k))) + 3), type(getattr(self, k))))
         if self.embedding == 'layersize':
             self.embedding = self.layers[0]
-            print('SET   {}{}TO   {}{}(type: {})'.format('embedding', ' '*(maxk_len-len('embedding')+3), getattr(self, 'embedding'), ' '*(maxv_len-len(str(getattr(self, 'embedding')))+3), type(getattr(self, 'embedding'))))
+            print('ĐẶT   {}{}THÀNH   {}{}(kiểu: {})'.format('embedding', ' ' * (maxk_len - len('embedding') + 3), getattr(self, 'embedding'), ' ' * (maxv_len - len(str(getattr(self, 'embedding'))) + 3), type(getattr(self, 'embedding'))))
+
     def xe_loss_with_softmax(self, O, Y, M):
         if self.logq > 0:
             O = O - self.logq * torch.log(torch.cat([self.P0[Y[:M]], self.P0[Y[M:]]**self.sample_alpha]))
         X = torch.exp(O - O.max(dim=1, keepdim=True)[0])
         X = X / X.sum(dim=1, keepdim=True)
         return -torch.sum(torch.log(torch.diag(X)+1e-24))
+
     def softmax_neg(self, X):
         hm = 1.0 - torch.eye(*X.shape, out=torch.empty_like(X))
         X = X * hm
         e_x = torch.exp(X - X.max(dim=1, keepdim=True)[0]) * hm
         return e_x / e_x.sum(dim=1, keepdim=True)
+
     def bpr_max_loss_with_elu(self, O, Y, M):
         if self.elu_param > 0:
             O = nn.functional.elu(O, self.elu_param)
@@ -452,6 +493,7 @@ class GRU4Rec:
         target_scores = torch.diag(O)
         target_scores = target_scores.reshape(target_scores.shape[0],-1)
         return torch.sum((-torch.log(torch.sum(torch.sigmoid(target_scores-O)*softmax_scores, dim=1)+1e-24)+self.bpreg*torch.sum((O**2)*softmax_scores, dim=1)))
+
     def fit(self, data, sample_cache_max_size=10000000, compatibility_mode=True, item_key='ItemId', session_key='SessionId', time_key='Time'):
         self.error_during_train = False
         self.data_iterator = SessionDataIterator(data, self.batch_size, n_sample=self.n_sample, sample_alpha=self.sample_alpha, sample_cache_max_size=sample_cache_max_size, item_key=item_key, session_key=session_key, time_key=time_key, session_order='time', device=self.device)
@@ -495,7 +537,8 @@ class GRU4Rec:
                 return
             t1 = time.time()
             dt = t1 - t0
-            print('Epoch{} --> loss: {:.6f} \t({:.2f}s) \t[{:.2f} mb/s | {:.0f} e/s]'.format(epoch+1, avgc, dt, len(c)/dt, np.sum(cc)/dt))
+            print('Epoch{} --> mất mát: {:.6f} \t({:.2f}s) \t[{:.2f} mb/s | {:.0f} e/s]'.format(epoch + 1, avgc, dt, len(c) / dt, np.sum(cc) / dt))
+
     def _adjust_hidden(self, n_valid, finished_mask, valid_mask, H):
         if (self.n_sample == 0) and (n_valid < 2):
             return True
@@ -506,6 +549,7 @@ class GRU4Rec:
             for i in range(len(H)):
                 H[i] = H[i][valid_mask]
         return False
+
     def to(self, device):
         if type(device) == str:
             device = torch.device(device)
@@ -520,8 +564,10 @@ class GRU4Rec:
             if hasattr(self.data_iterator, 'sample_cache'):
                 self.data_iterator.sample_cache.device = device
         pass
+
     def savemodel(self, path):
         torch.save(self, path)
+
     @classmethod
     def loadmodel(cls, path, device='cuda:0'):
         gru = torch.load(path, map_location=device)
