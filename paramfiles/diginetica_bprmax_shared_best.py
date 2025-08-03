@@ -1,18 +1,18 @@
-from collections import OrderedDict
-gru4rec_params = OrderedDict([
-('loss', 'bpr-max'),
-('constrained_embedding', True),
-('embedding', 0),
-('elu_param', 1),
-('layers', [512]),
-('n_epochs', 10),
-('batch_size', 128),
-('dropout_p_embed', 0.5),
-('dropout_p_hidden', 0.3),
-('learning_rate', 0.05),
-('momentum', 0.15),
-('n_sample', 2048),
-('sample_alpha', 0.3),
-('bpreg', 0.9),
-('logq', 0.0)
+from collections import OrderedDict  # Import thư viện OrderedDict để tạo dictionary có thứ tự
+gru4rec_params = OrderedDict([  # Khởi tạo một OrderedDict để lưu các tham số cho GRU4Rec
+('loss', 'bpr-max'),  # Hàm mất mát sử dụng là bpr-max
+('constrained_embedding', True),  # Sử dụng embedding bị ràng buộc
+('embedding', 0),  # Kích thước embedding (0 có thể là giá trị mặc định)
+('elu_param', 1),  # Tham số cho hàm kích hoạt ELU
+('layers', [512]),  # Cấu trúc mạng với một lớp ẩn có 512 đơn vị
+('n_epochs', 10),  # Số lượng epoch để huấn luyện
+('batch_size', 128),  # Kích thước batch trong quá trình huấn luyện
+('dropout_p_embed', 0.5),  # Xác suất dropout cho embedding
+('dropout_p_hidden', 0.3),  # Xác suất dropout cho các lớp ẩn
+('learning_rate', 0.05),  # Tốc độ học (learning rate)
+('momentum', 0.15),  # Hệ số momentum cho thuật toán tối ưu
+('n_sample', 2048),  # Số lượng mẫu âm được lấy trong mỗi batch
+('sample_alpha', 0.3),  # Tham số alpha cho sampling
+('bpreg', 0.9),  # Hệ số điều chỉnh cho bpr-max
+('logq', 0.0)  # Giá trị logq (có thể liên quan đến sampling hoặc regularization)
 ])
