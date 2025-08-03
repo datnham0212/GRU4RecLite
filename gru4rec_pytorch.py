@@ -156,8 +156,9 @@ class GRU4RecModel(nn.Module):
         self.reset_parameters()
 
     @torch.no_grad()
+    # Đặt lại các tham số của mô hình
     def reset_parameters(self):
-        # Đặt lại các tham số cho tất cả các lớp
+        # Đặt lại tham số cho các lớp nhúng, GRU và đầu ra
         if self.embedding:
             init_parameter_matrix(self.E.weight)
         elif not self.constrained_embedding:
@@ -170,20 +171,27 @@ class GRU4RecModel(nn.Module):
         init_parameter_matrix(self.Wy.weight)
         nn.init.zeros_(self.By.weight)
 
+    # Khởi tạo trọng số ngẫu nhiên theo phân phối đồng nhất
     def _init_numpy_weights(self, shape):
         sigma = np.sqrt(6.0 / (shape[0] + shape[1]))
         m = np.random.rand(*shape).astype('float32') * 2 * sigma - sigma
         return m
 
+    # Đặt lại trọng số để tương thích với chế độ cũ
     @torch.no_grad()
     def _reset_weights_to_compatibility_mode(self):
+        # Đặt lại trọng số để tương thích với chế độ cũ
         np.random.seed(42)
+        # Đặt lại trọng số cho các lớp nhúng và GRU
         if self.constrained_embedding:
+            # Sử dụng lớp cuối cùng làm đầu vào nếu nhúng bị ràng buộc
             n_input = self.layers[-1]
         elif self.embedding:
+            # Sử dụng nhúng riêng biệt nếu được chỉ định
             n_input = self.embedding
             self.E.weight.set_(torch.tensor(self._init_numpy_weights((self.n_items, n_input)), device=self.E.weight.device))
         else:
+            # Sử dụng GRUEmbedding nếu không có nhúng riêng biệt
             n_input = self.n_items
             m = []
             m.append(self._init_numpy_weights((n_input, self.layers[0])))
@@ -199,6 +207,7 @@ class GRU4RecModel(nn.Module):
             self.GE.Wh0.set_(torch.tensor(self._init_numpy_weights((self.layers[0], self.layers[0])).astype('float32'), device=self.GE.Wh0.device))
             self.GE.Bh0.set_(torch.zeros((self.layers[0] * 3,), dtype=torch.float32, device=self.GE.Bh0.device))
 
+        # Đặt lại trọng số cho các lớp GRU
         for i in range(self.start, len(self.layers)):
             m = []
             m.append(self._init_numpy_weights((n_input, self.layers[i])))
@@ -215,6 +224,7 @@ class GRU4RecModel(nn.Module):
             self.G[i].bias_hh.set_(torch.zeros((self.layers[i] * 3,), dtype=torch.float32, device=self.G[i].bias_hh.device))
             self.G[i].bias_ih.set_(torch.zeros((self.layers[i] * 3,), dtype=torch.float32, device=self.G[i].bias_ih.device))
 
+        # Đặt lại trọng số cho lớp đầu ra
         self.Wy.weight.set_(torch.tensor(self._init_numpy_weights((self.n_items, self.layers[-1])), dtype=torch.float32, device=self.Wy.weight.device))
         self.By.weight.set_(torch.zeros((self.n_items, 1), dtype=torch.float32, device=self.By.weight.device))
 
@@ -320,29 +330,37 @@ class SampleCache:
 
 class SessionDataIterator:
     def __init__(self, data, batch_size, n_sample=0, sample_alpha=0.75, sample_cache_max_size=10000000, item_key='ItemId', session_key='SessionId', time_key='Time', session_order='time', device=torch.device('cuda:0'), itemidmap=None):
+        # Khởi tạo bộ lặp dữ liệu phiên
         self.device = device
         self.batch_size = batch_size
         if itemidmap is None:
+            # Tạo ánh xạ ID mục nếu chưa có
             itemids = data[item_key].unique()
             self.n_items = len(itemids)
             self.itemidmap = pd.Series(data=np.arange(self.n_items, dtype='int32'), index=itemids, name='ItemIdx')
         else:
+            # Sử dụng ánh xạ ID mục đã tồn tại
             print('Using existing item ID map')
             self.itemidmap = itemidmap
             self.n_items = len(itemidmap)
             in_mask = data[item_key].isin(itemidmap.index.values)
             n_not_in = (~in_mask).sum()
             if n_not_in > 0:
-                #print('{} rows of the data contain unknown items and will be filtered'.format(n_not_in))
+                # Loại bỏ các mục không xác định
                 data = data.drop(data.index[~in_mask])
+        # Sắp xếp dữ liệu nếu cần
         self.sort_if_needed(data, [session_key, time_key])
+        # Tính toán vị trí bắt đầu của mỗi phiên
         self.offset_sessions = self.compute_offset(data, session_key)
         if session_order == 'time':
+            # Sắp xếp các phiên theo thời gian
             self.session_idx_arr = np.argsort(data.groupby(session_key)[time_key].min().values)
         else:
             self.session_idx_arr = np.arange(len(self.offset_sessions) - 1)
+        # Lấy danh sách các mục trong dữ liệu
         self.data_items = self.itemidmap[data[item_key].values].values
         if n_sample > 0:
+            # Tạo phân phối mẫu âm
             pop = data.groupby(item_key).size()
             pop = pop[self.itemidmap.index.values].values**sample_alpha
             pop = pop.cumsum() / pop.sum()
@@ -351,6 +369,7 @@ class SessionDataIterator:
             self.sample_cache = SampleCache(n_sample, sample_cache_max_size, distr, device=self.device)
 
     def sort_if_needed(self, data, columns, any_order_first_dim=False):
+        # Kiểm tra và sắp xếp dữ liệu nếu cần
         is_sorted = True
         neq_masks = []
         for i, col in enumerate(columns):
@@ -375,37 +394,41 @@ class SessionDataIterator:
             print('Dữ liệu đã được sắp xếp trong {:.2f} giây'.format(t1 - t0))
 
     def compute_offset(self, data, column):
+        # Tính toán vị trí bắt đầu của mỗi phiên
         offset = np.zeros(data[column].nunique() + 1, dtype=np.int32)
         offset[1:] = data.groupby(column).size().cumsum()
         return offset
 
     def __call__(self, enable_neg_samples, reset_hook=None):
+        # Tạo các lô dữ liệu để huấn luyện
         batch_size = self.batch_size
         iters = np.arange(batch_size)
         maxiter = iters.max()
         start = self.offset_sessions[self.session_idx_arr[iters]]
-        end = self.offset_sessions[self.session_idx_arr[iters]+1] # This here
+        end = self.offset_sessions[self.session_idx_arr[iters] + 1]
         finished = False
         valid_mask = np.ones(batch_size, dtype='bool')
         n_valid = self.batch_size
         while not finished:
-            minlen = (end-start).min()
+            # Tính độ dài tối thiểu của các phiên
+            minlen = (end - start).min()
             out_idx = torch.tensor(self.data_items[start], requires_grad=False, device=self.device)
-            for i in range(minlen-1):
+            for i in range(minlen - 1):
+                # Tạo các cặp dữ liệu đầu vào và đầu ra
                 in_idx = out_idx
-                out_idx = torch.tensor(self.data_items[start+i+1], requires_grad=False, device=self.device)
+                out_idx = torch.tensor(self.data_items[start + i + 1], requires_grad=False, device=self.device)
                 if enable_neg_samples:
                     sample = self.sample_cache.get_sample()
                     y = torch.cat([out_idx, sample])
                 else:
                     y = out_idx
                 yield in_idx, y
-            start = start+minlen-1
-            finished_mask = (end-start<=1)
+            start = start + minlen - 1
+            finished_mask = (end - start <= 1)
             n_finished = finished_mask.sum()
-            iters[finished_mask] = maxiter + np.arange(1,n_finished+1)
+            iters[finished_mask] = maxiter + np.arange(1, n_finished + 1)
             maxiter += n_finished
-            valid_mask = (iters < len(self.offset_sessions)-1)
+            valid_mask = (iters < len(self.offset_sessions) - 1)
             n_valid = valid_mask.sum()
             if n_valid == 0:
                 finished = True
@@ -413,7 +436,7 @@ class SessionDataIterator:
             mask = finished_mask & valid_mask
             sessions = self.session_idx_arr[iters[mask]]
             start[mask] = self.offset_sessions[sessions]
-            end[mask] = self.offset_sessions[sessions+1]
+            end[mask] = self.offset_sessions[sessions + 1]
             iters = iters[valid_mask]
             start = start[valid_mask]
             end = end[valid_mask]
@@ -424,6 +447,7 @@ class GRU4Rec:
     def __init__(self, layers=[100], loss='cross-entropy', batch_size=64, dropout_p_embed=0.0,
                  dropout_p_hidden=0.0, learning_rate=0.05, momentum=0.0, sample_alpha=0.5, n_sample=2048, embedding=0,
                  constrained_embedding=True, n_epochs=10, bpreg=1.0, elu_param=0.5, logq=0.0, device=torch.device('cuda:0')):
+        # Khởi tạo mô hình GRU4Rec với các tham số
         self.device = device
         self.layers = layers
         self.loss = loss
@@ -446,11 +470,16 @@ class GRU4Rec:
         self.n_epochs = n_epochs
 
     def set_loss_function(self, loss):
-        if loss == 'cross-entropy': self.loss_function = self.xe_loss_with_softmax
-        elif loss == 'bpr-max': self.loss_function = self.bpr_max_loss_with_elu
-        else: raise NotImplementedError
+        # Đặt hàm mất mát cho mô hình
+        if loss == 'cross-entropy': 
+            self.loss_function = self.xe_loss_with_softmax
+        elif loss == 'bpr-max': 
+            self.loss_function = self.bpr_max_loss_with_elu
+        else: 
+            raise NotImplementedError
 
     def set_params(self, **kvargs):
+        # Cập nhật các tham số của mô hình
         maxk_len = np.max([len(str(x)) for x in kvargs.keys()])
         maxv_len = np.max([len(str(x)) for x in kvargs.values()])
         for k, v in kvargs.items():
@@ -458,23 +487,28 @@ class GRU4Rec:
                 print('Thuộc tính không xác định: {}'.format(k))
                 raise NotImplementedError
             else:
-                if type(v) == str and type(getattr(self, k)) == list: v = [int(l) for l in v.split('/')]
+                if type(v) == str and type(getattr(self, k)) == list: 
+                    v = [int(l) for l in v.split('/')]
                 if type(v) == str and type(getattr(self, k)) == bool:
-                    if v == 'True' or v == '1': v = True
-                    elif v == 'False' or v == '0': v = False
+                    if v == 'True' or v == '1': 
+                        v = True
+                    elif v == 'False' or v == '0': 
+                        v = False
                     else:
                         print('Giá trị không hợp lệ cho tham số boolean: {}'.format(v))
                         raise NotImplementedError
                 if k == 'embedding' and v == 'layersize':
                     self.embedding = 'layersize'
                 setattr(self, k, type(getattr(self, k))(v))
-                if k == 'loss': self.set_loss_function(self.loss)
+                if k == 'loss': 
+                    self.set_loss_function(self.loss)
                 print('ĐẶT   {}{}THÀNH   {}{}(kiểu: {})'.format(k, ' ' * (maxk_len - len(k) + 3), getattr(self, k), ' ' * (maxv_len - len(str(getattr(self, k))) + 3), type(getattr(self, k))))
         if self.embedding == 'layersize':
             self.embedding = self.layers[0]
             print('ĐẶT   {}{}THÀNH   {}{}(kiểu: {})'.format('embedding', ' ' * (maxk_len - len('embedding') + 3), getattr(self, 'embedding'), ' ' * (maxv_len - len(str(getattr(self, 'embedding'))) + 3), type(getattr(self, 'embedding'))))
 
     def xe_loss_with_softmax(self, O, Y, M):
+        # Hàm mất mát cross-entropy với softmax
         if self.logq > 0:
             O = O - self.logq * torch.log(torch.cat([self.P0[Y[:M]], self.P0[Y[M:]]**self.sample_alpha]))
         X = torch.exp(O - O.max(dim=1, keepdim=True)[0])
@@ -482,20 +516,23 @@ class GRU4Rec:
         return -torch.sum(torch.log(torch.diag(X)+1e-24))
 
     def softmax_neg(self, X):
+        # Tính softmax cho các điểm âm
         hm = 1.0 - torch.eye(*X.shape, out=torch.empty_like(X))
         X = X * hm
         e_x = torch.exp(X - X.max(dim=1, keepdim=True)[0]) * hm
         return e_x / e_x.sum(dim=1, keepdim=True)
 
     def bpr_max_loss_with_elu(self, O, Y, M):
+        # Hàm mất mát BPR-max với ELU
         if self.elu_param > 0:
             O = nn.functional.elu(O, self.elu_param)
         softmax_scores = self.softmax_neg(O)
         target_scores = torch.diag(O)
-        target_scores = target_scores.reshape(target_scores.shape[0],-1)
-        return torch.sum((-torch.log(torch.sum(torch.sigmoid(target_scores-O)*softmax_scores, dim=1)+1e-24)+self.bpreg*torch.sum((O**2)*softmax_scores, dim=1)))
+        target_scores = target_scores.reshape(target_scores.shape[0], -1)
+        return torch.sum((-torch.log(torch.sum(torch.sigmoid(target_scores - O) * softmax_scores, dim=1) + 1e-24) + self.bpreg * torch.sum((O**2) * softmax_scores, dim=1)))
 
     def fit(self, data, sample_cache_max_size=10000000, compatibility_mode=True, item_key='ItemId', session_key='SessionId', time_key='Time'):
+        # Huấn luyện mô hình trên dữ liệu
         self.error_during_train = False
         self.data_iterator = SessionDataIterator(data, self.batch_size, n_sample=self.n_sample, sample_alpha=self.sample_alpha, sample_cache_max_size=sample_cache_max_size, item_key=item_key, session_key=session_key, time_key=time_key, session_order='time', device=self.device)
         if self.logq and self.loss == 'cross-entropy':
@@ -515,8 +552,9 @@ class GRU4Rec:
             cc = []
             n_valid = self.batch_size
             reset_hook = lambda n_valid, finished_mask, valid_mask: self._adjust_hidden(n_valid, finished_mask, valid_mask, H)
-            for in_idx, out_idx in self.data_iterator(enable_neg_samples=(self.n_sample>0), reset_hook=reset_hook):
-                for h in H: h.detach_()
+            for in_idx, out_idx in self.data_iterator(enable_neg_samples=(self.n_sample > 0), reset_hook=reset_hook):
+                for h in H: 
+                    h.detach_()
                 self.model.zero_grad()
                 R = self.model.forward(in_idx, H, out_idx, training=True)
                 L = self.loss_function(R, out_idx, n_valid) / self.batch_size
@@ -541,24 +579,28 @@ class GRU4Rec:
             print('Epoch{} --> mất mát: {:.6f} \t({:.2f}s) \t[{:.2f} mb/s | {:.0f} e/s]'.format(epoch + 1, avgc, dt, len(c) / dt, np.sum(cc) / dt))
 
     def _adjust_hidden(self, n_valid, finished_mask, valid_mask, H):
+        # Điều chỉnh trạng thái ẩn khi các phiên kết thúc
         if (self.n_sample == 0) and (n_valid < 2):
             return True
         with torch.no_grad():
+            # Đặt trạng thái ẩn của các phiên đã hoàn thành về 0
             for i in range(len(self.layers)):
                 H[i][finished_mask] = 0
         if n_valid < len(valid_mask):
+            # Giữ lại trạng thái ẩn của các phiên hợp lệ
             for i in range(len(H)):
                 H[i] = H[i][valid_mask]
         return False
 
     def to(self, device):
+        # Chuyển mô hình và dữ liệu sang thiết bị khác (CPU/GPU)
         if type(device) == str:
             device = torch.device(device)
         if device == self.device:
             return
         if hasattr(self, 'model'):
             self.model = self.model.to(device)
-            self.model.eval()
+            self.model.eval()  # Đặt mô hình ở chế độ đánh giá
         self.device = device
         if hasattr(self, 'data_iterator'):
             self.data_iterator.device = device
@@ -567,15 +609,17 @@ class GRU4Rec:
         pass
 
     def savemodel(self, path):
+        # Lưu mô hình vào tệp
         torch.save(self, path)
 
     @classmethod
     def loadmodel(cls, path, device='cuda:0'):
+        # Tải mô hình từ tệp và chuyển sang thiết bị chỉ định
         gru = torch.load(path, map_location=device)
         gru.device = torch.device(device)
         if hasattr(gru, 'data_iterator'):
             gru.data_iterator.device = torch.device(device)
             if hasattr(gru.data_iterator, 'sample_cache'):
                 gru.data_iterator.sample_cache.device = torch.device(device)
-        gru.model.eval()
+        gru.model.eval()  # Đặt mô hình ở chế độ đánh giá
         return gru
