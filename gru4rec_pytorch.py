@@ -475,6 +475,10 @@ class GRU4Rec:
             self.loss_function = self.xe_loss_with_softmax
         elif loss == 'bpr-max': 
             self.loss_function = self.bpr_max_loss_with_elu
+        elif loss == 'top1':
+            self.loss_function = self.top1_loss
+        elif loss == 'top1-max':
+            self.loss_function = self.top1_max_loss
         else: 
             raise NotImplementedError
 
@@ -530,6 +534,29 @@ class GRU4Rec:
         target_scores = torch.diag(O)
         target_scores = target_scores.reshape(target_scores.shape[0], -1)
         return torch.sum((-torch.log(torch.sum(torch.sigmoid(target_scores - O) * softmax_scores, dim=1) + 1e-24) + self.bpreg * torch.sum((O**2) * softmax_scores, dim=1)))
+
+    def top1_loss(self, O, Y, M):
+        # TOP1 loss: mean_j [ sigmoid(r_j - r_i) + sigmoid(r_j)**2 ]
+        pos_scores = torch.diag(O)
+        neg_scores = O
+        diff = neg_scores - pos_scores.unsqueeze(1)
+        term1 = torch.sigmoid(diff)
+        term2 = torch.sigmoid(neg_scores) ** 2
+        per_pair = term1 + term2
+        per_sample = per_pair.mean(dim=1)
+        return per_sample.mean()
+
+    def top1_max_loss(self, O, Y, M):
+        # TOP1-max loss: sum_j [ softmax(neg_scores)_j * (σ(r_j - r_i) + σ(r_j)**2) ]
+        pos_scores = torch.diag(O)
+        neg_scores = O
+        weights = torch.nn.functional.softmax(neg_scores, dim=1)
+        diff = neg_scores - pos_scores.unsqueeze(1)
+        term1 = torch.sigmoid(diff)
+        term2 = torch.sigmoid(neg_scores) ** 2
+        per_pair = term1 + term2
+        per_sample = (weights * per_pair).sum(dim=1)
+        return per_sample.mean()
 
     def fit(self, data, sample_cache_max_size=10000000, compatibility_mode=True, item_key='ItemId', session_key='SessionId', time_key='Time'):
         # Huấn luyện mô hình trên dữ liệu
