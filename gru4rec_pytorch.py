@@ -301,7 +301,7 @@ class SampleCache:
         self.generate_length = sample_cache_max_size // n_sample if n_sample > 0 else 0
         self.distr = distr
         self._refresh()
-        print('Đã tạo bộ lưu trữ mẫu với {} lô mẫu (loại=GPU)'.format(self.generate_length))
+        print('Đã tạo bộ lưu trữ mẫu với {} lô mẫu'.format(self.generate_length))
 
     def _bin_search(self, arr, x):
         l = x.shape[0]

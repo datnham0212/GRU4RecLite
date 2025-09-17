@@ -27,6 +27,8 @@ parser.add_argument('-sk', '--session_key', metavar='SK', type=str, default='Ses
 parser.add_argument('-tk', '--time_key', metavar='TK', type=str, default='Timestamp', help='Tên cột cho dấu thời gian.')
 parser.add_argument('-pm', '--primary_metric', metavar='METRIC', choices=['recall', 'mrr'], default='recall', help='Chỉ số đánh giá chính.')
 parser.add_argument('-lpm', '--log_primary_metric', action='store_true', help='Ghi lại giá trị của chỉ số chính vào cuối quá trình chạy.')
+parser.add_argument('--eval-metrics', type=str, default='recall_mrr,coverage,ild',
+                    help='Các chỉ số đánh giá cần tính, phân tách bằng dấu phẩy (ví dụ: recall_mrr,coverage,ild)')
 args = parser.parse_args()
 
 # Thay đổi thư mục làm việc thành vị trí của script
@@ -132,12 +134,20 @@ if args.test is not None:
         print('Bắt đầu đánh giá (cut-off={}, sử dụng chế độ {} để xử lý hòa)'.format(args.measure, args.eval_type))
         t0 = time.time()
         # Thực hiện đánh giá theo lô
-        res = evaluation.batch_eval(gru, test_data, batch_size=512, cutoff=args.measure, mode=args.eval_type, item_key=args.item_key, session_key=args.session_key, time_key=args.time_key)
+        eval_metrics = args.eval_metrics.split(',') if hasattr(args, 'eval_metrics') else ['recall_mrr', 'coverage', 'ild']
+        res = evaluation.batch_eval(gru, test_data, batch_size=512, cutoff=args.measure, mode=args.eval_type, item_key=args.item_key, session_key=args.session_key, time_key=args.time_key, eval_metrics=eval_metrics)
         t1 = time.time()
         print('Đánh giá mất {:.2f}s'.format(t1 - t0))
         # In kết quả đánh giá
-        for c in args.measure:
-            print('Recall@{}: {:.6f} MRR@{}: {:.6f}'.format(c, res[0][c], c, res[1][c]))
+        if 'recall' in res and 'mrr' in res:
+            for c in args.measure:
+                print('Recall@{}: {:.6f} MRR@{}: {:.6f}'.format(c, res['recall'][c], c, res['mrr'][c]))
+        if 'item_coverage' in res:
+            print('Item coverage: {:.6f}'.format(res['item_coverage']))
+        if 'catalog_coverage' in res:
+            print('Catalog coverage: {:.6f}'.format(res['catalog_coverage']))
+        if 'ild' in res:
+            print('ILD: {:.6f}'.format(res['ild']))
 
         # Ghi lại chỉ số chính nếu được chỉ định
         if args.log_primary_metric:
