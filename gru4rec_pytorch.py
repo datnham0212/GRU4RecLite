@@ -642,7 +642,7 @@ class GRU4Rec:
     @classmethod
     def loadmodel(cls, path, device='cuda:0'):
         # Tải mô hình từ tệp và chuyển sang thiết bị chỉ định
-        gru = torch.load(path, map_location=device)
+        gru = torch.load(path, map_location=device, weights_only=False)
         gru.device = torch.device(device)
         if hasattr(gru, 'data_iterator'):
             gru.data_iterator.device = torch.device(device)

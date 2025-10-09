@@ -150,6 +150,6 @@ if args.test is not None:
             print('ILD: {:.6f}'.format(res['ild']))
 
         # Ghi lại chỉ số chính nếu được chỉ định
-        if args.log_primary_metric:
+        if args.log_primary_metric: 
             print('CHỈ SỐ CHÍNH: {}'.format([x for x in res[pm_index].values()][0]))
-
+            
