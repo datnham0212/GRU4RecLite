@@ -16,7 +16,7 @@ def _ensure_datetime_series(s):
 
 def read_and_normalize(paths):
     def _read_file(path):
-        # Yoochoose-clicks.dat: SessionId, Timestamp, ItemId, Category
+        # Yoochoose-clicks.dat: session_id, timestamp, item_id, Category
         # Auto-detect separator
         seps = ['\t', ',', ';', '|']
         df = None
@@ -27,8 +27,8 @@ def read_and_normalize(paths):
                     sep=sep,
                     header=None,
                     usecols=[0, 1, 2],
-                    names=['SessionId', 'Timestamp', 'ItemId'],
-                    dtype={'SessionId': object, 'ItemId': object},
+                    names=['session_id', 'timestamp', 'item_id'],
+                    dtype={'session_id': object, 'item_id': object},
                     low_memory=False
                 )
                 if df.shape[1] == 3:
@@ -38,10 +38,10 @@ def read_and_normalize(paths):
                 continue
         if df is None:
             raise ValueError(f"Cannot determine separator / read file {path}")
-        # Normalize Timestamp: could be numeric epoch seconds or already date-like
-        df['Timestamp'] = _ensure_datetime_series(df['Timestamp'])
+        # Normalize timestamp: could be numeric epoch seconds or already date-like
+        df['timestamp'] = _ensure_datetime_series(df['timestamp'])
         # Drop rows with invalid timestamps or missing ids
-        df = df.dropna(subset=['SessionId', 'ItemId', 'Timestamp'])
+        df = df.dropna(subset=['session_id', 'item_id', 'timestamp'])
         return df
 
     if isinstance(paths, str) and any(c in paths for c in ['*', '?']):
@@ -57,61 +57,61 @@ def read_and_normalize(paths):
     df_list = [_read_file(p) for p in file_list]
     df = pd.concat(df_list, ignore_index=True)
     # Ensure proper dtypes
-    df['SessionId'] = df['SessionId'].astype(str)
-    df['ItemId'] = df['ItemId'].astype(str)
+    df['session_id'] = df['session_id'].astype(str)
+    df['item_id'] = df['item_id'].astype(str)
     return df
 
 
 def filter_data(df, min_session_length=2, min_item_support=5):
     # Lọc dữ liệu dựa trên độ dài session và số lần xuất hiện của item
     df = df.copy()
-    item_counts = df['ItemId'].value_counts()
+    item_counts = df['item_id'].value_counts()
     valid_items = item_counts[item_counts >= min_item_support].index
-    df = df[df['ItemId'].isin(valid_items)]
+    df = df[df['item_id'].isin(valid_items)]
 
-    sess_counts = df['SessionId'].value_counts()
+    sess_counts = df['session_id'].value_counts()
     valid_sess = sess_counts[sess_counts >= min_session_length].index
-    df = df[df['SessionId'].isin(valid_sess)]
+    df = df[df['session_id'].isin(valid_sess)]
     return df
 
 
 def sort_and_dedup(df):
     # Sắp xếp và loại bỏ các mục trùng lặp trong cùng một session
     df = df.copy()
-    # Ensure Timestamp is datetime
-    if not pd.api.types.is_datetime64_any_dtype(df['Timestamp']):
-        df['Timestamp'] = _ensure_datetime_series(df['Timestamp'])
-    df = df.sort_values(['SessionId', 'Timestamp'])
-    df['prev_item'] = df.groupby('SessionId')['ItemId'].shift(1)
-    df = df[df['ItemId'] != df['prev_item']]
+    # Ensure timestamp is datetime
+    if not pd.api.types.is_datetime64_any_dtype(df['timestamp']):
+        df['timestamp'] = _ensure_datetime_series(df['timestamp'])
+    df = df.sort_values(['session_id', 'timestamp'])
+    df['prev_item'] = df.groupby('session_id')['item_id'].shift(1)
+    df = df[df['item_id'] != df['prev_item']]
     return df.drop(columns=['prev_item'])
 
 
 def map_indices(df, start_index=1):
     # Ánh xạ các item sang chỉ số duy nhất
-    unique_items = pd.Index(df['ItemId'].unique())
+    unique_items = pd.Index(df['item_id'].unique())
     idx_map = {item: idx for idx, item in enumerate(unique_items, start=start_index)}
     df = df.copy()
-    df['ItemIdx'] = df['ItemId'].map(idx_map)
+    df['item_idx'] = df['item_id'].map(idx_map)
     return df, idx_map
 
 
 def split_time_based(df, test_days=7, valid_days=7):
     # Chia dữ liệu dựa trên thời gian
     df = df.copy()
-    if not pd.api.types.is_datetime64_any_dtype(df['Timestamp']):
-        df['Timestamp'] = _ensure_datetime_series(df['Timestamp'])
-    max_t = df['Timestamp'].max()
+    if not pd.api.types.is_datetime64_any_dtype(df['timestamp']):
+        df['timestamp'] = _ensure_datetime_series(df['timestamp'])
+    max_t = df['timestamp'].max()
     if pd.isna(max_t):
-        raise ValueError("Timestamp column contains no valid datetime values")
+        raise ValueError("timestamp column contains no valid datetime values")
     test_boundary = max_t - timedelta(days=test_days)
-    train_full = df[df['Timestamp'] < test_boundary].copy()
-    test = df[df['Timestamp'] >= test_boundary].copy()
+    train_full = df[df['timestamp'] < test_boundary].copy()
+    test = df[df['timestamp'] >= test_boundary].copy()
 
-    max_train = train_full['Timestamp'].max()
+    max_train = train_full['timestamp'].max()
     valid_boundary = max_train - timedelta(days=valid_days)
-    train_tr = train_full[train_full['Timestamp'] < valid_boundary].copy()
-    train_valid = train_full[train_full['Timestamp'] >= valid_boundary].copy()
+    train_tr = train_full[train_full['timestamp'] < valid_boundary].copy()
+    train_valid = train_full[train_full['timestamp'] >= valid_boundary].copy()
 
     return {
         'train_full': train_full,
@@ -167,9 +167,9 @@ if __name__ == '__main__':
         output_dir = os.path.join(repo_root, 'input_data', 'yoochoose-data')
         os.makedirs(output_dir, exist_ok=True)
         for name, df in yoo_splits.items():
-            # write Timestamp in ISO format for consistency
+            # write timestamp in ISO format for consistency
             out_df = df.copy()
-            out_df.loc[:, 'Timestamp'] = out_df['Timestamp'].dt.strftime('%Y-%m-%d %H:%M:%S')
+            out_df.loc[:, 'timestamp'] = out_df['timestamp'].dt.strftime('%Y-%m-%d %H:%M:%S')
             out_df.to_csv(os.path.join(output_dir, f'yoochoose_{name}.dat'), index=False, sep='\t')
         pd.to_pickle(yoo_map, os.path.join(output_dir, 'yoochoose_map.pkl'))
         print("Yoochoose preprocessing complete. Files written to", output_dir)

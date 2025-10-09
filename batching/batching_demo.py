@@ -3,11 +3,12 @@ from batching_datasets import SessionDataset, SessionParallelDataset, collate_fn
 from batching_models import SessionGRUModel
 import torch
 from torch.utils.data import DataLoader
+import os  # added import
 
 if __name__ == '__main__':
     # Đọc 2 file sẽ rất lâu, nên chia ra đọc từng file một
     # Đọc phiên từ file train của Yoochoose
-    yoochoose_path = 'd:/output_data/yoochoose_train_tr.dat'
+    yoochoose_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'input_data', 'yoochoose-data', 'yoochoose_train_tr.dat'))
     try:
         yoochoose_sessions = load_sessions_from_dat(yoochoose_path, item_idx_col='item_idx', min_session_length=2)
         print(f'Số phiên Yoochoose train: {len(yoochoose_sessions)}')
