@@ -22,9 +22,9 @@ parser.add_argument('-e', '--eval_type', metavar='EVAL_TYPE', choices=['standard
 parser.add_argument('-ss', '--sample_store_size', metavar='SS', type=int, default=10000000, help='Kích thước bộ đệm cho các mẫu âm trong quá trình huấn luyện.')
 parser.add_argument('-g', '--gru4rec_model', metavar='GRFILE', type=str, default='gru4rec_pytorch', help='Tệp chứa lớp GRU4Rec.')
 parser.add_argument('-d', '--device', metavar='D', type=str, default='cuda:0', help='Thiết bị để thực hiện tính toán (ví dụ: GPU).')
-parser.add_argument('-ik', '--item_key', metavar='IK', type=str, default='ItemId', help='Tên cột cho ID sản phẩm.')
-parser.add_argument('-sk', '--session_key', metavar='SK', type=str, default='SessionId', help='Tên cột cho ID phiên.')
-parser.add_argument('-tk', '--time_key', metavar='TK', type=str, default='Timestamp', help='Tên cột cho dấu thời gian.')
+parser.add_argument('-ik', '--item_key', metavar='IK', type=str, default='item_id', help='Tên cột cho ID sản phẩm.')
+parser.add_argument('-sk', '--session_key', metavar='SK', type=str, default='session_id', help='Tên cột cho ID phiên.')
+parser.add_argument('-tk', '--time_key', metavar='TK', type=str, default='timestamp', help='Tên cột cho dấu thời gian.')
 parser.add_argument('-pm', '--primary_metric', metavar='METRIC', choices=['recall', 'mrr'], default='recall', help='Chỉ số đánh giá chính.')
 parser.add_argument('-lpm', '--log_primary_metric', action='store_true', help='Ghi lại giá trị của chỉ số chính vào cuối quá trình chạy.')
 parser.add_argument('--eval-metrics', type=str, default='recall_mrr,coverage,ild',

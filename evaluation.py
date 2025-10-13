@@ -6,7 +6,7 @@ import numpy as np
 def item_coverage(topk_preds, item_catalog):
     """
     topk_preds: np.ndarray of shape (num_sessions, K)
-    item_catalog: set or list of tất cả các ItemId trong tập dữ liệu
+    item_catalog: set or list of tất cả các item_id trong tập dữ liệu
 
     Trả về: float ∈ [0, 1]
     """
@@ -17,7 +17,7 @@ def item_coverage(topk_preds, item_catalog):
 def catalog_coverage(topk_preds, item_catalog):
     """
     topk_preds: np.ndarray of shape (num_sessions, K)
-    item_catalog: set of tất cả các ItemId trong tập dữ liệu
+    item_catalog: set of tất cả các item_id trong tập dữ liệu
 
     Trả về: float ∈ [0, 1]
     """
@@ -79,7 +79,7 @@ def _get_item_embeddings(gru):
     return None
 
 @torch.no_grad()
-def batch_eval(gru, test_data, cutoff=[20], batch_size=512, mode='conservative', item_key='ItemId', session_key='SessionId', time_key='Time', eval_metrics=('recall_mrr', 'coverage', 'ild')):
+def batch_eval(gru, test_data, cutoff=[20], batch_size=512, mode='conservative', item_key='item_id', session_key='session_id', time_key='time', eval_metrics=('recall_mrr', 'coverage', 'ild')):
     if gru.error_during_train: 
         raise Exception('Đang cố gắng đánh giá một mô hình không được huấn luyện đúng cách (error_during_train=True)')
 

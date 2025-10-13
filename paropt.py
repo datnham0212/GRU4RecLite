@@ -27,9 +27,9 @@ parser.add_argument('-fm', '--final_measure', metavar='AT', type=int, nargs='*',
 parser.add_argument('-pm', '--primary_metric', metavar='METRIC', choices=['recall', 'mrr'], default='recall', help='Chỉ số chính để tối ưu hóa.')
 parser.add_argument('-e', '--eval_type', metavar='EVAL_TYPE', choices=['standard', 'conservative', 'median', 'tiebreaking'], default='standard', help='Chế độ đánh giá để xử lý các trường hợp hòa.')
 parser.add_argument('-d', '--device', metavar='D', type=str, default='cuda:0', help='Thiết bị để thực hiện tính toán.')
-parser.add_argument('-ik', '--item_key', metavar='IK', type=str, default='ItemId', help='Tên cột cho ID sản phẩm.')
-parser.add_argument('-sk', '--session_key', metavar='SK', type=str, default='SessionId', help='Tên cột cho ID phiên.')
-parser.add_argument('-tk', '--time_key', metavar='TK', type=str, default='Time', help='Tên cột cho dấu thời gian.')
+parser.add_argument('-ik', '--item_key', metavar='IK', type=str, default='item_id', help='Tên cột cho ID sản phẩm.')
+parser.add_argument('-sk', '--session_key', metavar='SK', type=str, default='session_id', help='Tên cột cho ID phiên.')
+parser.add_argument('-tk', '--time_key', metavar='TK', type=str, default='time', help='Tên cột cho dấu thời gian.')
 
 args = parser.parse_args()
 

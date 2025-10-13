@@ -329,7 +329,7 @@ class SampleCache:
         return sample
 
 class SessionDataIterator:
-    def __init__(self, data, batch_size, n_sample=0, sample_alpha=0.75, sample_cache_max_size=10000000, item_key='ItemId', session_key='SessionId', time_key='Time', session_order='time', device=torch.device('cuda:0'), itemidmap=None):
+    def __init__(self, data, batch_size, n_sample=0, sample_alpha=0.75, sample_cache_max_size=10000000, item_key='item_id', session_key='session_id', time_key='time', session_order='time', device=torch.device('cuda:0'), itemidmap=None):
         # Khởi tạo bộ lặp dữ liệu phiên
         self.device = device
         self.batch_size = batch_size
@@ -337,7 +337,7 @@ class SessionDataIterator:
             # Tạo ánh xạ ID mục nếu chưa có
             itemids = data[item_key].unique()
             self.n_items = len(itemids)
-            self.itemidmap = pd.Series(data=np.arange(self.n_items, dtype='int32'), index=itemids, name='ItemIdx')
+            self.itemidmap = pd.Series(data=np.arange(self.n_items, dtype='int32'), index=itemids, name='item_idx')
         else:
             # Sử dụng ánh xạ ID mục đã tồn tại
             print('Using existing item ID map')
@@ -558,7 +558,7 @@ class GRU4Rec:
         per_sample = (weights * per_pair).sum(dim=1)
         return per_sample.mean()
 
-    def fit(self, data, sample_cache_max_size=10000000, compatibility_mode=True, item_key='ItemId', session_key='SessionId', time_key='Time'):
+    def fit(self, data, sample_cache_max_size=10000000, compatibility_mode=True, item_key='item_id', session_key='session_id', time_key='time'):
         # Huấn luyện mô hình trên dữ liệu
         self.error_during_train = False
         self.data_iterator = SessionDataIterator(data, self.batch_size, n_sample=self.n_sample, sample_alpha=self.sample_alpha, sample_cache_max_size=sample_cache_max_size, item_key=item_key, session_key=session_key, time_key=time_key, session_order='time', device=self.device)
