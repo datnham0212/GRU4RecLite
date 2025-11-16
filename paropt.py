@@ -41,8 +41,18 @@ import re
 
 # Tạo lệnh để chạy mô hình GRU4Rec với các tham số đã được tối ưu hóa
 def generate_command(optimized_param_str):
-    command = 'python run.py "{}" -t "{}" -g {} -ps {},{} -m {} -pm {} -lpm -e {} -d {} -ik {} -sk {} -tk {}'.format(
-        args.path, args.test, args.gru4rec_model, args.fixed_parameters, optimized_param_str, args.measure, 
+    # Build parameter string safely (don't produce leading/trailing commas)
+    if args.fixed_parameters:
+        if optimized_param_str:
+            ps_arg = args.fixed_parameters + ',' + optimized_param_str
+        else:
+            ps_arg = args.fixed_parameters
+    else:
+        ps_arg = optimized_param_str
+
+    # Quote paths/strings for Windows command-line basic safety
+    command = 'python run.py "{}" -t "{}" -g {} -ps "{}" -m {} -pm {} -lpm -e {} -d {} -ik {} -sk {} -tk {}'.format(
+        args.path, args.test, args.gru4rec_model, ps_arg, args.measure,
         args.primary_metric, args.eval_type, args.device, args.item_key, args.session_key, args.time_key
     )
     return command
@@ -51,16 +61,46 @@ def generate_command(optimized_param_str):
 def run_once(optimized_param_str):
     command = generate_command(optimized_param_str)
     cmd = pexpect.spawnu(command, timeout=None, maxread=1)
+    val = None
     line = cmd.readline()
+    # Patterns to accept:
+    re_eng = re.compile(r'PRIMARY METRIC:\s*([+-]?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)')
+    re_vn  = re.compile(r'CHỈ SỐ CHÍNH:\s*([+-]?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)')
+    re_rec_mrr = re.compile(r'Recall@(\d+):\s*([+-]?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)\s+MRR@(\d+):\s*([+-]?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)')
+
     while line:
         line = line.strip()
         print(line)
-        # Trích xuất giá trị của chỉ số chính từ đầu ra
-        if re.match('PRIMARY METRIC: -*\\d\\.\\d+e*-*\\d*', line):
-            t = line.split(':')[1].lstrip()
-            val = float(t)
-            break
+        # English primary metric
+        m = re_eng.search(line)
+        if m:
+            try:
+                val = float(m.group(1))
+                break
+            except:
+                pass
+        # Vietnamese primary metric
+        m = re_vn.search(line)
+        if m:
+            try:
+                val = float(m.group(1))
+                break
+            except:
+                pass
+        # Recall/MRR line -> choose based on args.primary_metric
+        m = re_rec_mrr.search(line)
+        if m:
+            try:
+                if args.primary_metric.lower() == 'recall':
+                    val = float(m.group(2))
+                else:
+                    val = float(m.group(4))
+                break
+            except:
+                pass
         line = cmd.readline()
+    if val is None:
+        raise RuntimeError('Không tìm thấy chỉ số chính trong đầu ra của run.py (command: {})'.format(command))
     return val
 
 # Lớp để định nghĩa và xử lý không gian tham số cho tối ưu hóa
@@ -131,9 +171,18 @@ study.optimize(lambda trial: objective(trial, par_space), n_trials=args.ntrials)
 # Chạy đánh giá cuối cùng với các tham số tốt nhất
 print('Chạy đánh giá cuối cùng @{}:'.format(args.final_measure))
 optimized_param_str = ','.join(['{}={}'.format(k, v) for k, v in study.best_params.items()])
-command = 'python run.py "{}" -t "{}" -g {} -ps {},{} -m {} -e {} -d {} -ik {} -sk {} -tk {}'.format(
-    args.path, args.test, args.gru4rec_model, args.fixed_parameters, optimized_param_str, 
-    ' '.join([str(x) for x in args.final_measure]), args.eval_type, args.device, args.item_key, args.session_key, args.time_key
+# Build final parameter string as above
+if args.fixed_parameters:
+    if optimized_param_str:
+        final_ps = args.fixed_parameters + ',' + optimized_param_str
+    else:
+        final_ps = args.fixed_parameters
+else:
+    final_ps = optimized_param_str
+
+command = 'python run.py "{}" -t "{}" -g {} -ps "{}" -m {} -pm {} -lpm -e {} -d {} -ik {} -sk {} -tk {}'.format(
+    args.path, args.test, args.gru4rec_model, final_ps,
+    ' '.join([str(x) for x in args.final_measure]), args.primary_metric, args.eval_type, args.device, args.item_key, args.session_key, args.time_key
 )
 cmd = pexpect.spawnu(command, timeout=None, maxread=1)
 line = cmd.readline()
