@@ -82,7 +82,12 @@ def preprocess_retailrocket(
     test_days=7,
     valid_days=7,
     index_start=1,
-    output_dir=r'C:/Users/Admin/Documents/Research/Online Store with Session-based Recommendation/web_demo/model/gru4rec_torch/input_data/retailrocket-data'):
+    output_dir=None):
+    # Determine a sensible default output directory if none provided
+    if output_dir is None:
+        repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+        output_dir = os.path.join(repo_root, 'input_data', 'retailrocket-data')
+
     df = read_retailrocket_events(path, use_events)
     df = filter_sessions_items(df, min_session_length, min_item_support)
     df = sort_and_remove_consecutive_duplicates(df)
@@ -94,14 +99,29 @@ def preprocess_retailrocket(
     pd.to_pickle(idx_map, os.path.join(output_dir, 'retailrocket_map.pkl'))
     print('Done!')
 
+def __main_block__():
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    possible_rr = [
+        os.path.join(repo_root, 'Retailrocket-data', 'events.csv'),
+        os.path.join(repo_root, '..', 'Retailrocket-data', 'events.csv'),
+        os.path.join(repo_root, 'retailrocket-data', 'events.csv'),
+        os.path.join(repo_root, '..', 'retailrocket-data', 'events.csv'),
+    ]
+    rr_path = next((p for p in possible_rr if os.path.isfile(p)), None)
+    if rr_path is None:
+        print("Warning: Retailrocket events.csv not found in expected locations. Set path manually in __main__ if needed.")
+    else:
+        print("Using retailrocket file:", rr_path)
+        preprocess_retailrocket(
+            path=rr_path,
+            use_events=['view'],
+            min_session_length=2,
+            min_item_support=5,
+            test_days=7,
+            valid_days=7,
+            index_start=1,
+            output_dir=None
+        )
+
 if __name__ == '__main__':
-    preprocess_retailrocket(
-        path=r'C:/Users/Admin/Documents/Research/Online Store with Session-based Recommendation/web_demo/model/Retailrocket-data/events.csv',
-        use_events=['view'],
-        min_session_length=2,
-        min_item_support=5,
-        test_days=7,
-        valid_days=7,
-        index_start=1,
-        output_dir=r'C:/Users/Admin/Documents/Research/Online Store with Session-based Recommendation/web_demo/model/gru4rec_torch/input_data/retailrocket-data'
-    )
+    __main_block__()

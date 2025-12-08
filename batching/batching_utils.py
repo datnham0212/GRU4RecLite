@@ -1,5 +1,6 @@
 import pandas as pd
 from typing import List
+from pathlib import Path
 
 def load_sessions_from_dat(path: str, item_idx_col: str = 'item_idx', min_session_length: int = 2) -> List[List[int]]:
     """Read a .dat/.csv file containing session_id,timestamp,item_idx and return list of sessions (list of item_idx).
@@ -19,14 +20,15 @@ def load_sessions_from_dat(path: str, item_idx_col: str = 'item_idx', min_sessio
     return sessions
 
 if __name__ == '__main__':
+    base_dir = Path(__file__).parent.parent / 'input_data'
     # đọc phiên dữ liệu từ file train Yoochoose
-    yoochoose_path = r'D:/output_data/yoochoose_train_tr.dat'
-    yoochoose_sessions = load_sessions_from_dat(yoochoose_path, item_idx_col='item_idx', min_session_length=2)
+    yoochoose_path = base_dir / 'yoochoose-data' / 'yoochoose_train_tr.dat'
+    yoochoose_sessions = load_sessions_from_dat(str(yoochoose_path), item_idx_col='item_idx', min_session_length=2)
     print(f'Số phiên Yoochoose train: {len(yoochoose_sessions)}')
     print('Ví dụ một phiên Yoochoose:', yoochoose_sessions[0] if yoochoose_sessions else 'Không có phiên nào')
 
     # đọc phiên dữ liệu từ file train Retail Rocket
-    # retailrocket_path = r'd:/output_data/retailrocket_train_tr.dat'
-    # retailrocket_sessions = load_sessions_from_dat(retailrocket_path, item_idx_col='item_idx', min_session_length=2)
+    # retailrocket_path = base_dir / 'retailrocket-data' / 'retailrocket_train_tr.dat'
+    # retailrocket_sessions = load_sessions_from_dat(str(retailrocket_path), item_idx_col='item_idx', min_session_length=2)
     # print(f'Số phiên Retail Rocket train: {len(retailrocket_sessions)}')
     # print('Ví dụ một phiên Retail Rocket:', retailrocket_sessions[0] if retailrocket_sessions else 'Không có phiên nào')
