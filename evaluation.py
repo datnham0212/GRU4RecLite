@@ -45,6 +45,41 @@ def intra_list_diversity(topk_preds, item_embeddings):
     return np.mean(ild_scores)
 
 
+# Đo lường độ đa dạng tổng hợp: số lượng mục duy nhất được đề xuất trên tất cả người dùng.
+def aggregate_diversity(topk_preds, item_catalog):
+    """
+    topk_preds: np.ndarray of shape (num_sessions, K)
+    item_catalog: set of tất cả các item_id trong tập dữ liệu
+
+    Trả về: float ∈ [0, 1]
+    """
+    unique_items = set(topk_preds.flatten().tolist())
+    return len(unique_items) / len(item_catalog)
+
+
+# Đo lường độ đa dạng giữa người dùng: mức độ khác biệt giữa các danh sách đề xuất.
+def inter_user_diversity(topk_preds):
+    """
+    topk_preds: np.ndarray of shape (num_sessions, K)
+
+    Trả về: float ∈ [0, 1]
+    """
+    n_sessions = topk_preds.shape[0]
+    if n_sessions < 2:
+        return 0.0
+    # Tính Jaccard distance trung bình giữa các cặp danh sách
+    diversities = []
+    for i in range(n_sessions):
+        set_i = set(topk_preds[i])
+        for j in range(i+1, n_sessions):
+            set_j = set(topk_preds[j])
+            intersection = len(set_i & set_j)
+            union = len(set_i | set_j)
+            if union > 0:
+                diversities.append(1 - intersection/union)
+    return np.mean(diversities) if diversities else 0.0
+
+
 def _get_item_embeddings(gru):
     """
     Trả về ma trận embedding cho mục (shape: [n_items, dim]).
@@ -83,6 +118,19 @@ def batch_eval(gru, test_data, cutoff=[20], batch_size=512, mode='conservative',
     if gru.error_during_train: 
         raise Exception('Đang cố gắng đánh giá một mô hình không được huấn luyện đúng cách (error_during_train=True)')
 
+    # Filter test data to only include items in training vocabulary
+    valid_items = set(gru.data_iterator.itemidmap.index)
+    test_data_filtered = test_data[test_data[item_key].isin(valid_items)].copy()
+    if test_data_filtered.empty:
+        raise ValueError("No valid items in test data after filtering by training vocabulary")
+    
+    print(f"Original test data: {len(test_data)} events")
+    print(f"Filtered test data: {len(test_data_filtered)} events (removed {len(test_data) - len(test_data_filtered)} unknown items)")
+    train_vocab = set(gru.data_iterator.itemidmap.index)
+    print(f"Training vocabulary size: {len(train_vocab)}")
+    print(f"Test data unique items: {test_data[item_key].nunique()}")
+    print(f"Items in both: {len(set(test_data[item_key]) & set(train_vocab))}")
+
     item_embeddings = _get_item_embeddings(gru)
     if item_embeddings is not None:
         norms = np.linalg.norm(item_embeddings, axis=1, keepdims=True)
@@ -94,7 +142,7 @@ def batch_eval(gru, test_data, cutoff=[20], batch_size=512, mode='conservative',
     H = [torch.zeros((batch_size, gru.layers[i]), device=gru.device) for i in range(len(gru.layers))]
     reset_hook = lambda n_valid, finished_mask, valid_mask: gru._adjust_hidden(n_valid, finished_mask, valid_mask, H)
     data_iterator = SessionDataIterator(
-        test_data, batch_size, 0, 0, 0, item_key, session_key, time_key,
+        test_data_filtered, batch_size, 0, 0, 0, item_key, session_key, time_key,
         device=gru.device, itemidmap=gru.data_iterator.itemidmap
     )
     all_topk_preds = []
@@ -139,5 +187,8 @@ def batch_eval(gru, test_data, cutoff=[20], batch_size=512, mode='conservative',
         results['catalog_coverage'] = catalog_coverage(topk_preds, item_catalog)
     if 'ild' in eval_metrics:
         results['ild'] = intra_list_diversity(topk_preds, item_embeddings) if item_embeddings is not None else float('nan')
+    if 'diversity' in eval_metrics:
+        results['aggregate_diversity'] = aggregate_diversity(topk_preds, item_catalog)
+        results['inter_user_diversity'] = inter_user_diversity(topk_preds)
 
     return results
