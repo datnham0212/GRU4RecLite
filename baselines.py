@@ -2,11 +2,16 @@
 Simple baseline recommendation models for comparison.
 - MostPopularBaseline: Always recommend the K most popular items globally
 - LastItemBaseline: Recommend items similar to the user's last clicked item
+- ItemKNNBaseline: Recommend items based on item-item similarity from co-occurrences
 """
 
 import numpy as np
 import pandas as pd
 from collections import Counter
+import time
+from scipy.sparse import csr_matrix
+from sklearn.preprocessing import normalize
+from sklearn.metrics.pairwise import cosine_similarity
 
 
 class MostPopularBaseline:
@@ -148,3 +153,90 @@ class LastItemBaseline:
         except Exception:
             # On any error, fall back to MostPopular
             return self.fallback.recommend(session_items, topk, exclude_seen)
+
+
+class ItemKNNBaseline:
+    """
+    Item-KNN: Recommend items based on similarity to items in current session.
+    Similarity is computed using cosine distance between item co-occurrence vectors.
+    """
+    
+    def __init__(self, k=20, min_support=1, item_key='item_id', session_key='session_id'):
+        self.k = k
+        self.min_support = min_support
+        self.item_key = item_key
+        self.session_key = session_key
+        self.similarity_matrix = None
+        self.item_to_idx = None
+        self.idx_to_item = None
+        self.n_items = 0
+        
+    def fit(self, data):
+        """Fit ItemKNN by computing item-item similarity matrix."""
+        print("  [ItemKNN] Computing item-item similarity...", end='', flush=True)
+        start_time = time.time()
+        
+        # Create item mapping
+        unique_items = sorted(data[self.item_key].unique())
+        self.item_to_idx = {item: idx for idx, item in enumerate(unique_items)}
+        self.idx_to_item = {v: k for k, v in self.item_to_idx.items()}
+        self.n_items = len(self.item_to_idx)
+        
+        # Build co-occurrence matrix: rows=items, cols=sessions
+        sessions = data.groupby(self.session_key)[self.item_key].apply(list)
+        
+        row_indices = []
+        col_indices = []
+        for session_idx, items in enumerate(sessions):
+            for item in items:
+                if item in self.item_to_idx:
+                    row_indices.append(self.item_to_idx[item])
+                    col_indices.append(session_idx)
+        
+        # Create sparse matrix (items × sessions)
+        cooccurrence = csr_matrix(
+            (np.ones(len(row_indices)), (row_indices, col_indices)),
+            shape=(self.n_items, len(sessions))
+        )
+        
+        # Normalize and compute cosine similarity
+        cooccurrence_normalized = normalize(cooccurrence, norm='l2', axis=1)
+        self.similarity_matrix = cosine_similarity(cooccurrence_normalized, dense_output=False)
+        
+        fit_time = time.time() - start_time
+        print(f" done ({fit_time:.2f}s)")
+        
+    def recommend(self, session_items, topk=20, exclude_seen=True):
+        """Recommend topk items for a session."""
+        if not session_items:
+            return []
+        
+        # Convert session items to indices
+        session_indices = []
+        for item in session_items:
+            if item in self.item_to_idx:
+                session_indices.append(self.item_to_idx[item])
+        
+        if not session_indices:
+            return []
+        
+        # Compute recommendation scores: average similarity across session items
+        scores = np.zeros(self.n_items)
+        for session_idx in session_indices:
+            if session_idx < self.n_items:
+                scores += self.similarity_matrix[session_idx].toarray().ravel()
+        scores /= len(session_indices)
+        
+        # Optionally mask out seen items
+        if exclude_seen:
+            for idx in session_indices:
+                if idx < self.n_items:
+                    scores[idx] = -np.inf
+    
+        # Get top-k
+        top_indices = np.argsort(-scores)[:topk]
+        
+        # Convert back to item IDs
+        recommendations = [str(self.idx_to_item[idx]) for idx in top_indices if idx < self.n_items]
+        
+        return recommendations

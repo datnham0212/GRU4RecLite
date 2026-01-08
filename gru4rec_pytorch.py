@@ -2,6 +2,7 @@ import math
 import numpy as np
 import pandas as pd
 import torch
+import torch.nn as nn
 from torch import autograd, nn
 from torch.autograd import Variable
 from collections import OrderedDict
@@ -468,6 +469,8 @@ class GRU4Rec:
             self.embedding = embedding
         self.constrained_embedding = constrained_embedding
         self.n_epochs = n_epochs
+        self.optimizer = None  # Will be initialized during training
+        self.model = None      # Will be created during training
 
     def set_loss_function(self, loss):
         # Đặt hàm mất mát cho mô hình
@@ -558,18 +561,69 @@ class GRU4Rec:
         per_sample = (weights * per_pair).sum(dim=1)
         return per_sample.mean()
 
+    def forward_step(self, input_idx, hidden):
+        """
+        Forward pass for session-parallel batching.
+        Processes one step per session in the batch.
+        
+        Args:
+            input_idx: [B] tensor of item indices for current step
+            hidden: [num_layers, B, hidden_size] hidden states
+        
+        Returns:
+            logits: [B, n_items] output logits
+            hidden: [num_layers, B, hidden_size] updated hidden states
+        """
+        if self.model is None:
+            raise RuntimeError("Model not initialized. Call fit() or loadmodel() first.")
+        
+        # Get embedding based on embedding type
+        if self.model.constrained_embedding:
+            # Use Wy embeddings (constrained embedding)
+            X = self.model.Wy(input_idx)  # [B, layers[-1]]
+        elif self.model.embedding > 0:
+            # Use separate embedding
+            X = self.model.E(input_idx)  # [B, embedding]
+        else:
+            # Use GRU embedding (requires previous hidden state)
+            X = self.model.GE(input_idx.unsqueeze(0), hidden[0]).squeeze(0)  # [B, layers[0]]
+        
+        # Apply dropout to embeddings
+        X = self.model.DE(X)
+        
+        # Process through GRU layers
+        new_hidden = []
+        H = X
+        for i in range(self.model.start, len(self.model.G)):
+            gru_cell = self.model.G[i - self.model.start]
+            dropout = self.model.D[i - self.model.start]
+            h_prev = hidden[i]  # [B, hidden_size]
+            h_new = gru_cell(H, h_prev)  # [B, hidden_size]
+            h_new = dropout(h_new)
+            new_hidden.append(h_new.unsqueeze(0))
+            H = h_new
+        
+        # Concatenate hidden states from all layers
+        new_hidden = torch.cat(new_hidden, dim=0)  # [num_layers - start, B, hidden_size]
+        
+        # Output layer: compute logits using Wy embeddings
+        logits = torch.mm(H, self.model.Wy.weight.t()) + self.model.By.weight.t()  # [B, n_items]
+        
+        return logits, new_hidden
+
     def fit(self, data, sample_cache_max_size=10000000, compatibility_mode=True, item_key='item_id', session_key='session_id', time_key='time'):
         # Huấn luyện mô hình trên dữ liệu
         self.error_during_train = False
         self.data_iterator = SessionDataIterator(data, self.batch_size, n_sample=self.n_sample, sample_alpha=self.sample_alpha, sample_cache_max_size=sample_cache_max_size, item_key=item_key, session_key=session_key, time_key=time_key, session_order='time', device=self.device)
         if self.logq and self.loss == 'cross-entropy':
             pop = data.groupby(item_key).size()
-            self.P0 = torch.tensor(pop[self.data_iterator.itemidmap.index.values], dtype=torch.float32, device=self.device)
+            self.P0 = torch.tensor(pop.loc[self.data_iterator.itemidmap.index.values].values, dtype=torch.float32, device=self.device)
         model = GRU4RecModel(self.data_iterator.n_items, self.layers, self.dropout_p_embed, self.dropout_p_hidden, self.embedding, self.constrained_embedding).to(self.device)
         if compatibility_mode: 
             model._reset_weights_to_compatibility_mode()
         self.model = model
         opt = IndexedAdagradM(self.model.parameters(), self.learning_rate, self.momentum)
+        self.optimizer = opt  # Store optimizer for later use in session-parallel training
         for epoch in range(self.n_epochs):
             t0 = time.time()
             H = []
@@ -650,3 +704,15 @@ class GRU4Rec:
                 gru.data_iterator.sample_cache.device = torch.device(device)
         gru.model.eval()  # Đặt mô hình ở chế độ đánh giá
         return gru
+
+    def train(self):
+        """Set model to training mode"""
+        if self.model is not None:
+            self.model.train()
+        return self
+
+    def eval(self):
+        """Set model to evaluation mode"""
+        if self.model is not None:
+            self.model.eval()
+        return self

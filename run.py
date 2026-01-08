@@ -27,8 +27,9 @@ parser.add_argument('-sk', '--session_key', metavar='SK', type=str, default='ses
 parser.add_argument('-tk', '--time_key', metavar='TK', type=str, default='timestamp', help='Tên cột cho dấu thời gian.')
 parser.add_argument('-pm', '--primary_metric', metavar='METRIC', choices=['recall', 'mrr'], default='recall', help='Chỉ số đánh giá chính.')
 parser.add_argument('-lpm', '--log_primary_metric', action='store_true', help='Ghi lại giá trị của chỉ số chính vào cuối quá trình chạy.')
-parser.add_argument('--eval-metrics', type=str, default='recall_mrr,coverage,ild',
+parser.add_argument('--eval-metrics', type=str, default='recall_mrr,coverage,ild,aggregate_diversity,inter_user_diversity',
                     help='Các chỉ số đánh giá cần tính, phân tách bằng dấu phẩy (ví dụ: recall_mrr,coverage,ild)')
+parser.add_argument('--seed', metavar='SEED', type=int, default=42, help='Random seed cho reproducibility (default: 42)')
 args = parser.parse_args()
 
 # Thay đổi thư mục làm việc thành vị trí của script
@@ -44,6 +45,17 @@ import sys
 import time
 from collections import OrderedDict
 import importlib
+import torch
+import random
+
+def set_seed(seed):
+    """Set random seeds for reproducibility across numpy, torch, and random"""
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+
 GRU4Rec = importlib.import_module(args.gru4rec_model).GRU4Rec
 import evaluation
 import importlib.util
@@ -104,6 +116,9 @@ else:
     if args.parameter_string:
         gru4rec_params = OrderedDict([x.split('=') for x in args.parameter_string.split(',')])
     print('Đang tạo mô hình GRU4Rec trên thiết bị "{}"'.format(args.device))
+    # Set random seed for reproducibility
+    set_seed(args.seed)
+    print('Random seed set to: {}'.format(args.seed))
     gru = GRU4Rec(device=args.device)
     gru.set_params(**gru4rec_params)
     print('Đang tải dữ liệu huấn luyện...')
@@ -148,6 +163,10 @@ if args.test is not None:
             print('Catalog coverage: {:.6f}'.format(res['catalog_coverage']))
         if 'ild' in res:
             print('ILD: {:.6f}'.format(res['ild']))
+        if 'aggregate_diversity' in res:
+            print('Aggregate diversity: {:.6f}'.format(res['aggregate_diversity']))
+        if 'inter_user_diversity' in res:
+            print('Inter-user diversity: {:.6f}'.format(res['inter_user_diversity']))
 
         # Ghi lại chỉ số chính nếu được chỉ định
         if args.log_primary_metric: 

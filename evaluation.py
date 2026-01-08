@@ -48,36 +48,85 @@ def intra_list_diversity(topk_preds, item_embeddings):
 # Đo lường độ đa dạng tổng hợp: số lượng mục duy nhất được đề xuất trên tất cả người dùng.
 def aggregate_diversity(topk_preds, item_catalog):
     """
+    Computes aggregate diversity (coverage of the catalog by recommended items)
+    in a fail-safe manner.
+    
     topk_preds: np.ndarray of shape (num_sessions, K)
-    item_catalog: set of tất cả các item_id trong tập dữ liệu
+    item_catalog: set of all item_ids in the dataset
 
-    Trả về: float ∈ [0, 1]
+    Returns:
+        float ∈ [0, 1] : fraction of catalog covered by top-K predictions
     """
-    unique_items = set(topk_preds.flatten().tolist())
+    if topk_preds.size == 0:
+        return 0.0  # No predictions at all
+    if not item_catalog:
+        return 0.0  # Empty catalog, avoid division by zero
+
+    # Flatten predictions and filter only items in the catalog
+    unique_items = set(topk_preds.flatten().tolist()) & item_catalog
+
+    if not unique_items:
+        return 0.0  # No items matched catalog
+
     return len(unique_items) / len(item_catalog)
 
 
-# Đo lường độ đa dạng giữa người dùng: mức độ khác biệt giữa các danh sách đề xuất.
-def inter_user_diversity(topk_preds):
-    """
-    topk_preds: np.ndarray of shape (num_sessions, K)
 
-    Trả về: float ∈ [0, 1]
+# Đo lường độ đa dạng giữa người dùng: mức độ khác biệt giữa các danh sách đề xuất.
+from datasketch import MinHash, MinHashLSH
+from tqdm import tqdm
+import numpy as np
+
+def inter_user_diversity_lsh(topk_preds, num_perm=128, lsh_threshold=0.0, sample_size=10000):
+    """
+    Approximate inter-user diversity using MinHash + LSH, with optional sampling for speed.
+    
+    topk_preds: np.ndarray of shape (num_sessions, K)
+    num_perm: number of permutations for MinHash signature (higher -> more accurate)
+    lsh_threshold: similarity threshold for LSH (0-1), controls candidate pairs
+    sample_size: maximum number of sessions to use (randomly sampled if n_sessions > sample_size)
+
+    Returns:
+        float ∈ [0, 1] : approximate average inter-user diversity
     """
     n_sessions = topk_preds.shape[0]
     if n_sessions < 2:
         return 0.0
-    # Tính Jaccard distance trung bình giữa các cặp danh sách
-    diversities = []
-    for i in range(n_sessions):
-        set_i = set(topk_preds[i])
-        for j in range(i+1, n_sessions):
-            set_j = set(topk_preds[j])
-            intersection = len(set_i & set_j)
-            union = len(set_i | set_j)
-            if union > 0:
-                diversities.append(1 - intersection/union)
-    return np.mean(diversities) if diversities else 0.0
+
+    # --- Step 0: Optional sampling ---
+    if n_sessions > sample_size:
+        idx = np.random.choice(n_sessions, size=sample_size, replace=False)
+        topk_preds = topk_preds[idx]
+        n_sessions = sample_size
+
+    # --- Step 1: Create MinHash signatures for all sessions ---
+    minhashes = []
+    for items in tqdm(topk_preds, desc="Building MinHash signatures"):
+        m = MinHash(num_perm=num_perm)
+        for item in items:
+            m.update(str(item).encode('utf8'))
+        minhashes.append(m)
+
+    # --- Step 2: Build LSH index ---
+    lsh = MinHashLSH(threshold=lsh_threshold, num_perm=num_perm)
+    for i, m in enumerate(minhashes):
+        lsh.insert(f"user_{i}", m)
+
+    # --- Step 3: Collect candidate similar pairs and compute approximate Jaccard distances ---
+    distances = []
+    seen_pairs = set()
+    for i, m in enumerate(tqdm(minhashes, desc="Querying LSH for candidate pairs")):
+        sims = lsh.query(m)
+        for sim_user in sims:
+            j = int(sim_user.split("_")[1])
+            if i < j and (i, j) not in seen_pairs:
+                seen_pairs.add((i, j))
+                approx_jaccard = m.jaccard(minhashes[j])
+                distances.append(1 - approx_jaccard)  # Jaccard distance
+
+    return float(np.mean(distances)) if distances else 0.0
+
+
 
 
 def _get_item_embeddings(gru):
@@ -189,6 +238,6 @@ def batch_eval(gru, test_data, cutoff=[20], batch_size=512, mode='conservative',
         results['ild'] = intra_list_diversity(topk_preds, item_embeddings) if item_embeddings is not None else float('nan')
     if 'diversity' in eval_metrics:
         results['aggregate_diversity'] = aggregate_diversity(topk_preds, item_catalog)
-        results['inter_user_diversity'] = inter_user_diversity(topk_preds)
+        results['inter_user_diversity'] = inter_user_diversity_lsh(topk_preds)
 
     return results

@@ -12,6 +12,7 @@ import pandas as pd
 import torch
 import importlib.util
 from datetime import datetime
+import time
 
 # Add paths
 WEB_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -32,7 +33,7 @@ except ImportError:
         print("ERROR: Could not import GRU4Rec")
         sys.exit(1)
 
-from baselines import MostPopularBaseline, LastItemBaseline
+from baselines import MostPopularBaseline, LastItemBaseline, ItemKNNBaseline
 import evaluation
 
 
@@ -121,8 +122,8 @@ def get_item_embeddings_from_gru(gru):
 
 
 def run_gru4rec_eval(gru, test_data, cutoff, item_key, session_key, time_key, 
-                     batch_size=512, eval_metrics=('recall_mrr', 'coverage', 'ild')):
-    """Evaluate GRU4Rec using batch_eval. (Removed 'diversity' by default for memory efficiency)"""
+                     batch_size=512, eval_metrics=('recall_mrr', 'coverage', 'ild', 'diversity')):
+    """Evaluate GRU4Rec using batch_eval. (Remove 'diversity' for memory efficiency)"""
     return evaluation.batch_eval(
         gru, test_data,
         cutoff=cutoff,
@@ -171,7 +172,7 @@ def run_baseline_eval(baseline, test_data, cutoff, item_key='item_id', session_k
     return results
 
 
-def format_results_table(gru_results, popular_results, lastitem_results, cutoff):
+def format_results_table(gru_results, popular_results, lastitem_results, itemknn_results, cutoff):
     """Format comparison table."""
     lines = []
     lines.append("\n" + "="*80)
@@ -212,20 +213,30 @@ def format_results_table(gru_results, popular_results, lastitem_results, cutoff)
         line += f"{recall:.4f}".ljust(12) + f"{mrr:.4f}".ljust(12)
     lines.append(line)
     
+    # ItemKNN
+    line = "ItemKNN".ljust(20)
+    for c in cutoff:
+        recall = itemknn_results[c]['recall']
+        mrr = itemknn_results[c]['mrr']
+        line += f"{recall:.4f}".ljust(12) + f"{mrr:.4f}".ljust(12)
+    lines.append(line)
+    
     lines.append("-" * 80)
     
     # Coverage and Diversity (GRU4Rec only, as baselines don't compute these)
     lines.append("")
-    lines.append("DIVERSITY Metrics (GRU4Rec):")
+    lines.append("COVERAGE & DIVERSITY Metrics (GRU4Rec only):")
     lines.append("-" * 80)
-    if 'coverage' in gru_results:
-        lines.append(f"Item Coverage:        {gru_results['coverage'].get('item_coverage', np.nan):.4f}")
-        lines.append(f"Catalog Coverage:     {gru_results['coverage'].get('catalog_coverage', np.nan):.4f}")
+    if 'item_coverage' in gru_results:
+        lines.append(f"Item Coverage:        {gru_results.get('item_coverage', np.nan):.4f}")
+    if 'catalog_coverage' in gru_results:
+        lines.append(f"Catalog Coverage:     {gru_results.get('catalog_coverage', np.nan):.4f}")
     if 'ild' in gru_results:
-        lines.append(f"Intra-List Diversity: {gru_results['ild']:.4f}")
-    if 'diversity' in gru_results:
-        lines.append(f"Aggregate Diversity:  {gru_results['diversity'].get('aggregate_diversity', np.nan):.4f}")
-        lines.append(f"Inter-User Diversity: {gru_results['diversity'].get('inter_user_diversity', np.nan):.4f}")
+        lines.append(f"Intra-List Diversity: {gru_results.get('ild', np.nan):.4f}")
+    if 'aggregate_diversity' in gru_results:
+        lines.append(f"Aggregate Diversity:  {gru_results.get('aggregate_diversity', np.nan):.4f}")
+    if 'inter_user_diversity' in gru_results:
+        lines.append(f"Inter-User Diversity: {gru_results.get('inter_user_diversity', np.nan):.4f}")
     
     lines.append("")
     lines.append("="*80)
@@ -359,6 +370,10 @@ def main():
         last_item.fit(train_data)
     print(f"  LastItem: ready (fallback to MostPopular if needed)")
     
+    itemknn = ItemKNNBaseline(item_key=args.item_key, session_key=args.session_key)
+    itemknn.fit(train_data)
+    print(f"  ItemKNN: {itemknn.n_items} items")
+    
     # Evaluate
     print("[4/4] Evaluating models...")
     
@@ -383,8 +398,12 @@ def main():
     lastitem_results = run_baseline_eval(last_item, test_data, args.cutoff, args.item_key, args.session_key)
     print(" done")
     
+    print("  ItemKNN...", end='', flush=True)
+    itemknn_results = run_baseline_eval(itemknn, test_data, args.cutoff, args.item_key, args.session_key)
+    print(" done")
+    
     # Format and output report
-    report = format_results_table(gru_results, popular_results, lastitem_results, args.cutoff)
+    report = format_results_table(gru_results, popular_results, lastitem_results, itemknn_results, args.cutoff)
     
     if args.output:
         with open(args.output, 'w') as f:
@@ -392,7 +411,15 @@ def main():
         print(f"\nReport saved to: {args.output}")
     else:
         print(report)
-
+    
+    # # Quick ItemKNN-only report
+    # print("\n" + "="*80)
+    # print("ItemKNN RESULTS")
+    # print("="*80)
+    # for c in args.cutoff:
+    #     print(f"Recall@{c}: {itemknn_results[c]['recall']:.4f}, MRR@{c}: {itemknn_results[c]['mrr']:.4f}")
+    # print("="*80)
+    
 
 if __name__ == '__main__':
     main()
