@@ -30,6 +30,8 @@ parser.add_argument('-lpm', '--log_primary_metric', action='store_true', help='G
 parser.add_argument('--eval-metrics', type=str, default='recall_mrr,coverage,ild,aggregate_diversity,inter_user_diversity',
                     help='Các chỉ số đánh giá cần tính, phân tách bằng dấu phẩy (ví dụ: recall_mrr,coverage,ild)')
 parser.add_argument('--seed', metavar='SEED', type=int, default=42, help='Random seed cho reproducibility (default: 42)')
+parser.add_argument('--attention', action='store_true', help='Bật attention đơn giản trong GRU4Rec (dot-product attention, thử nghiệm)')
+parser.add_argument('--attention_scale', type=float, default=0.1, help='Hệ số nhân cho attention (mặc định: 0.1)')
 args = parser.parse_args()
 
 # Thay đổi thư mục làm việc thành vị trí của script
@@ -115,6 +117,13 @@ else:
         print('Đã tải tham số từ tệp: {}'.format(param_file_path))
     if args.parameter_string:
         gru4rec_params = OrderedDict([x.split('=') for x in args.parameter_string.split(',')])
+    # --- Attention flag injection ---
+    if args.attention:
+        gru4rec_params['use_attention'] = True
+    else:
+        gru4rec_params['use_attention'] = False
+    gru4rec_params['attention_scale'] = args.attention_scale
+    # --- End attention flag injection ---
     print('Đang tạo mô hình GRU4Rec trên thiết bị "{}"'.format(args.device))
     # Set random seed for reproducibility
     set_seed(args.seed)
@@ -171,4 +180,3 @@ if args.test is not None:
         # Ghi lại chỉ số chính nếu được chỉ định
         if args.log_primary_metric: 
             print('CHỈ SỐ CHÍNH: {}'.format([x for x in res[pm_index].values()][0]))
-            

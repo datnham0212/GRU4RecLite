@@ -10,7 +10,6 @@ class SessionGRUModel(nn.Module):
         self.hidden_size = hidden_size
         self.gru_cells = nn.ModuleList([nn.GRUCell(emb_dim if i == 0 else hidden_size, hidden_size) for i in range(num_layers)])
         self.head = nn.Linear(hidden_size, vocab_size)
-    
     def forward_step(self, inputs: torch.LongTensor, hidden: torch.Tensor):
         emb = self.emb(inputs)
         h = emb

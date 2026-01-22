@@ -30,7 +30,7 @@ def load_params_from_file(param_file):
         param_list.append(f"{k}={v}")
     return ','.join(param_list)
 
-def run_with_seed(seed, dataset, config_params, output_prefix, device='cpu'):
+def run_with_seed(seed, dataset, config_params, output_prefix, output_dir, device='cpu', attention=False):
     """Run training with a specific random seed"""
     print(f"\n{'='*80}")
     print(f"RUN {seed}: Training with seed={seed} on device={device}")
@@ -45,21 +45,31 @@ def run_with_seed(seed, dataset, config_params, output_prefix, device='cpu'):
         '-ps', config_params,
         '-t', f'input_data/{dataset}/{dataset_base}_test.dat',
         '-m', '1', '5', '10', '20',
-        '-d', device,  # Use device parameter here
-        '-s', f'output_data/{output_prefix}_seed{seed}.pt',
+        '-d', device,
+        '-s', f'{output_dir}/{output_prefix}_seed{seed}.pt',
         '--seed', str(seed)
     ]
+    if attention:
+        cmd.append('--attention')
     
-    result = subprocess.run(cmd, cwd=os.path.dirname(os.path.abspath(__file__)))
+    result = subprocess.run(cmd, cwd=os.getcwd())
     return result.returncode == 0
 
 def main():
     """Run experiments with multiple seeds using best parameters"""
     
-    # Default: RetailRocket BPR-Max
     dataset = sys.argv[1] if len(sys.argv) > 1 else 'retailrocket-data'
     num_runs = int(sys.argv[2]) if len(sys.argv) > 2 else 3
-    device = sys.argv[3] if len(sys.argv) > 3 else 'cpu'  # Add device parameter
+    device = sys.argv[3] if len(sys.argv) > 3 else 'cuda'
+    attention = '--attention' in sys.argv
+    
+    # Detect if running on Kaggle and set output directory
+    if os.path.exists('/kaggle/working/'):
+        output_dir = '/kaggle/working/output_data'
+    else:
+        output_dir = 'output_data'
+    
+    os.makedirs(output_dir, exist_ok=True)
     
     # Map datasets to their best parameter files
     param_file_map = {
@@ -102,8 +112,8 @@ Configuration Parameters:
     successful_runs = 0
     
     for seed in seeds:
-        output_prefix = f'best_{dataset_short}'
-        success = run_with_seed(seed, dataset, config_params, output_prefix, device=device)  # Pass device
+        output_prefix = f'best_{dataset_short}' + ('_attn' if attention else '')
+        success = run_with_seed(seed, dataset, config_params, output_prefix, output_dir, device=device, attention=attention)
         results[seed] = success
         if success:
             successful_runs += 1
@@ -118,7 +128,7 @@ Configuration Parameters:
     
     print("\nModels saved to:")
     for seed in seeds:
-        print(f"  output_data/best_{dataset_short}_seed{seed}.pt")
+        print(f"  {output_dir}/best_{dataset_short}_seed{seed}.pt")
     
     print("\nNext step: Extract metrics from output above")
     print("          python -c \"import numpy as np; recalls=[...]; print(f'Recall@20: {np.mean(recalls):.4f} ± {np.std(recalls, ddof=1):.4f}')\"")

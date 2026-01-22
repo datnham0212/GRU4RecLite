@@ -6,7 +6,7 @@ gru4rec_params = OrderedDict([
     ('embedding', 0),
     ('elu_param', 0.0),
     ('layers', [112]),
-    ('n_epochs', 5),
+    ('n_epochs', 4),
     ('batch_size', 128),
     ('dropout_p_embed', 0.0),
     ('dropout_p_hidden', 0.1),
